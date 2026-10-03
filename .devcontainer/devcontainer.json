@@ -1,0 +1,28 @@
+{
+    "name": "C Development Container",
+    "dockerFile": "Dockerfile",
+    "build": {
+        "args": {
+            "USER_UID": "${localEnv:UID:1000}",
+            "USER_GID": "${localEnv:GID:1000}"
+        }
+    },
+    "remoteUser": "jungle",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-vscode.cpptools-extension-pack",
+                "ms-vscode.cpptools",
+                "ms-azuretools.vscode-docker"
+            ],
+            "settings": {
+                "terminal.integrated.defaultProfile.linux": "bash",
+                "C_Cpp.default.includePath": [
+                    "/usr/include",
+                    "/usr/local/include"
+                ],
+                "C_Cpp.default.compilerPath": "/usr/bin/gcc"
+            }
+        }
+    }
+}

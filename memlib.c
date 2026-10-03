@@ -15,9 +15,9 @@
 #include "config.h"
 
 /* private variables */
-static char *mem_start_brk;  /* points to first byte of heap */
-static char *mem_brk;        /* points to last byte of heap */
-static char *mem_max_addr;   /* largest legal heap address */ 
+static char *mem_start_brk;  // heap의 첫 위치
+static char *mem_brk;        /* points to last byte of heap */ // heap의 끝 위치 + 1
+static char *mem_max_addr;   // 가능한 최대 heap addr + 1
 
 /* 
  * mem_init - initialize the memory system model
@@ -25,7 +25,7 @@ static char *mem_max_addr;   /* largest legal heap address */
 void mem_init(void)
 {
     /* allocate the storage we will use to model the available VM */
-    if ((mem_start_brk = (char *)malloc(MAX_HEAP)) == NULL) {
+    if ((mem_start_brk = (char *)malloc(MAX_HEAP)) == NULL) { // 시스템의 모사
 	fprintf(stderr, "mem_init_vm: malloc error\n");
 	exit(1);
     }
@@ -62,7 +62,7 @@ void *mem_sbrk(int incr)
     if ( (incr < 0) || ((mem_brk + incr) > mem_max_addr)) {
 	errno = ENOMEM;
 	fprintf(stderr, "ERROR: mem_sbrk failed. Ran out of memory...\n");
-	return (void *)-1;
+	return (void *)-1; // fffff .... 
     }
     mem_brk += incr;
     return (void *)old_brk;
