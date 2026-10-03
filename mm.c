@@ -71,7 +71,7 @@ team_t team = {
 static void *heap_listp; // prolog 블록의 bp
 
 static void *coalesce(void *bp){ // 상수 시간이면서, 사이에 free chunk 두개 이상 없는 상태 유지 가능, live 객체 이동 못하므로, 추가 선택지 없음
-    size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
+    size_t prev_alloc = GET_ALLOC((bp) - DSIZE);
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
     size_t size = GET_SIZE(HDRP(bp));
 
@@ -159,13 +159,13 @@ static void *place(void *bp, size_t size) { //size는 footer와 header를 모두
     // place는 사용할 블록이니, mm_malloc에서만 사용,,
     if(GET_ALLOC(bp)) return NULL; //TODO: NULL 예외 처리 로직
 
-    size_t free_chunk_size = GET_SIZE(bp);
+    size_t free_chunk_size = GET_SIZE(HDRP(bp));
     size_t size_left = free_chunk_size - size;
     // alloc 빈 size - H/ F 둘 다 들어갈 수 있는 크기여야
 
     if(size_left >= DSIZE){ // dword 정렬이니, 적어도 DSIZE만큼 있거나 꽉 찰 것 예상 // TODO: 검증
         PUT(FTRP(bp), PACK(size_left, 0));
-        PUT( FTRP(bp) - (size_left - WSIZE) , PACK(size_left, 0));
+        PUT((char*)(FTRP(bp)) - (size_left - WSIZE) , PACK(size_left, 0));
     }
 
     PUT(HDRP(bp), PACK(size, 1));
@@ -177,7 +177,7 @@ static void *place(void *bp, size_t size) { //size는 footer와 header를 모두
 static void *find_fit(size_t size){ // 가능한 위치를 찾아서 payload 포인터 반환
     // first fit
     void *bp = heap_listp;
-    while((GET_ALLOC(HDRP(bp)) || (GET_SIZE(HDRP(bp)) < size) ) && GET_SIZE(HDRP(bp)) > 0 ){ // allocated이거나 필요 size보다 작으면 다음 탐색, size가 0이면, epilogue이므로 중단
+    while(!(!GET_ALLOC(HDRP(bp)) && (GET_SIZE(HDRP(bp)) >= size) ) && GET_SIZE(HDRP(bp)) > 0 ){ // allocated이거나 필요 size보다 작으면 다음 탐색, size가 0이면, epilogue이므로 중단
         bp = NEXT_BLKP(bp);
     } // 조건 만족하는 가장 첫 번째에서 중단
 
