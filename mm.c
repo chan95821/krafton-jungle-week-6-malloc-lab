@@ -91,8 +91,8 @@ static void *coalesce(void *bp){ // 상수 시간이면서, 사이에 free chunk
         //header 넣기
         PUT(HDRP(bp), PACK(size, 0));
         //footer 넣기
-        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0)); // TODO: 교재 코드하고 다른데, 이게 맞는것 같다
-
+        //PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0)); // TODO: 교재 코드하고 다른데, 이게 맞는것 같다 - 아님. HEADER가 이미 바뀌었기 때문에 합친 크기만큼 이동함
+        PUT(FTRP(bp), PACK(size, 0));
     }else { // 양쪽 chunk free
         size = size + GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(HDRP(NEXT_BLKP(bp)));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
@@ -156,16 +156,16 @@ int mm_init(void)
 
 static void *place(void *bp, size_t size) { //size는 footer와 header를 모두 포함    // TODO: footer 없는 구현
     
-    // place는 사용할 블록이니, mm_malloc에서만 사용,,
-    if(GET_ALLOC(bp)) return NULL; //TODO: NULL 예외 처리 로직
+    // place는 사용할 블록이니, mm_malloc에서만 사용,, - allocated 실수 방어용
+    if(GET_ALLOC(HDRP(bp))) return NULL; //TODO: NULL 예외 처리 로직
 
     size_t free_chunk_size = GET_SIZE(HDRP(bp));
     size_t size_left = free_chunk_size - size;
     // alloc 빈 size - H/ F 둘 다 들어갈 수 있는 크기여야
 
-    if(size_left >= DSIZE){ // dword 정렬이니, 적어도 DSIZE만큼 있거나 꽉 찰 것 예상 // TODO: 검증
+    if(size_left >= DSIZE){ // dword 정렬이니, 적어도 DSIZE만큼 있거나 꽉 찰 것 예상 // TODO: 검증해야함
         PUT(FTRP(bp), PACK(size_left, 0));
-        PUT((char*)(FTRP(bp)) - (size_left - WSIZE) , PACK(size_left, 0));
+        PUT(FTRP(bp) - (size_left - WSIZE) , PACK(size_left, 0));
     }
 
     PUT(HDRP(bp), PACK(size, 1));
@@ -177,11 +177,11 @@ static void *place(void *bp, size_t size) { //size는 footer와 header를 모두
 static void *find_fit(size_t size){ // 가능한 위치를 찾아서 payload 포인터 반환
     // first fit
     void *bp = heap_listp;
-    while(!(!GET_ALLOC(HDRP(bp)) && (GET_SIZE(HDRP(bp)) >= size) ) && GET_SIZE(HDRP(bp)) > 0 ){ // allocated이거나 필요 size보다 작으면 다음 탐색, size가 0이면, epilogue이므로 중단
+    while((GET_ALLOC(HDRP(bp)) || GET_SIZE(HDRP(bp)) < size) && GET_SIZE(HDRP(bp)) > 0 ){ // allocated이거나 필요 size보다 작으면 다음 탐색, size가 0이면, epilogue이므로 중단
         bp = NEXT_BLKP(bp);
     } // 조건 만족하는 가장 첫 번째에서 중단
 
-    if(GET_SIZE(HDRP(bp)) == 0) return NULL;
+    if(GET_SIZE(HDRP(bp)) == 0) return NULL; // 마지막 도달인 경우
 
      
     return bp;
@@ -211,7 +211,7 @@ void *mm_malloc(size_t size)
         place(bp, adjusted_size);
         return bp;
     } else {
-        size_t size_to_extend = MAX(adjusted_size, CHUNKSIZE); // TODO:왜 적어도 chunksize여야 할까?  = malloc 모사이니, 불필요하게 syscall 안하려고?
+        size_t size_to_extend = MAX(adjusted_size, CHUNKSIZE); // 왜 적어도 chunksize여야 할까?  = malloc 모사이니, 불필요하게 syscall 안하려고
         if( (bp = extend_heap(size_to_extend/WSIZE)) == NULL) // bp는 이미 coalesced chunk의 payload 위치
             return NULL;
 
