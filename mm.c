@@ -46,8 +46,8 @@ team_t team = {
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
 
 // footer 없는 구현용 
-#define PREV_FREE_BIT 0x2
-#define ALLOCATED_BIT 0x1
+#define BIT_PREV_FREE 0x2
+#define BIT_ALLOCATED 0x1
 // alocc bit를 OR 연산으로 합치기, - 적어도 짝수 워드 정렬 되어야 
 #define PACK(size, alloc) ((size) | (alloc))
 
@@ -55,9 +55,9 @@ team_t team = {
 #define PUT(p, val) (*(unsigned int *)(p) = (val))
 
 #define GET_SIZE(p) (GET(p) & ~0x7) // 헤더에서 size 읽어오기. pointer가 헤더/footer 위치여야 함
-#define GET_ALLOC(p) (GET(p) & ALLOCATED_BIT) // 헤더에서 alloc_stat 읽어오기. pointer가 헤더/footer 위치여야 함
+#define GET_ALLOC(p) (GET(p) & BIT_ALLOCATED) // 헤더에서 alloc_stat 읽어오기. pointer가 헤더/footer 위치여야 함
 
-#define GET_PREV_BLOCK_FREE(p) (GET(p) & PREV_FREE_BIT) // 헤더에서 이전 블록에 footer있는지(free인지) 확인하기. pointer가 header 위치여야 함
+#define GET_PREV_BLOCK_FREE(p) (GET(p) & BIT_PREV_FREE) // 헤더에서 이전 블록에 footer있는지(free인지) 확인하기. pointer가 header 위치여야 함
 
 #define HDRP(bp) (((char *)(bp)) - WSIZE)                      // bp는 payload의 주소, word 만큼 뒤로가기
 #define FTRP(bp) (((char *)(bp)) + GET_SIZE(HDRP(bp)) - DSIZE) // 시작점이 payload이니, word 두번 뒤로가야 // 상수 연산이면 최적화하지 않나? DSIZE = 2 * WSIZE
@@ -125,10 +125,10 @@ static void *extend_heap(size_t words) // payload 주소 반환
 
     //bp += WSIZE; // mem_sbrk는 첫 주소 반환하니, head만큼 offset 줘야?  하니 8바이트 정렬 안된다 // 그리고 segfault,, epilogue가 word 사이즈이고, header로 덧씌우면 된다. 그러니 bp + WSIZE 필요 없다
 
-
-    PUT(HDRP(bp), PACK(size, 0|(GET_PREV_BLOCK_FREE(HDRP(bp))))); // free block 크기 알려주는 TODO: 바로 전 블록이 free인지 아닌지 확인할 필요가 있을까?
+    // free한 후에 다음 블록에 free인지 플래그 붙여줌. 그러니 epilogue에 flag 있을 것,, 
+    PUT(HDRP(bp), PACK(size, 0|(GET_PREV_BLOCK_FREE(HDRP(bp))))); // epilogue의 prev free flag를 사용해 그 전 블록 free 여부 붙여넣기
     PUT(FTRP(bp), PACK(size, 0|(GET_PREV_BLOCK_FREE(HDRP(bp)))));
-    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); // epilogue 만들어서 덧씌움
+    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, BIT_PREV_FREE|BIT_ALLOCATED)); // epilogue 만들어서 덧씌움
 
     return coalesce(bp); // 새 bp 이전 블록이 free였으면, coalesce해야
 }
@@ -150,9 +150,9 @@ int mm_init(void)
         return -1;
     // 에필로그, 프롤로그
     PUT(heap_listp, 0);
-    PUT(heap_listp + (1 * WSIZE), PACK(DSIZE, ALLOCATED_BIT | 0));
+    PUT(heap_listp + (1 * WSIZE), PACK(DSIZE, BIT_ALLOCATED | 0));
     // PUT(heap_listp + (2 * WSIZE), 0 /*PACK(DSIZE, 1)*/);// => prologue도 allocated이니 header만 필요, 그런데 payload 정렬해야하므로 적어도 8바이트는 할당해야 
-    PUT(heap_listp + (3 * WSIZE), PACK(0, 1)); // epilogue는 header만 필요 - prologue가 allocated이니
+    PUT(heap_listp + (3 * WSIZE), PACK(0, BIT_ALLOCATED | 0)); // epilogue는 header만 필요 - prologue가 allocated이니
 
     heap_listp += (2 * WSIZE);
     if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
@@ -172,12 +172,15 @@ static void *place(void *bp, size_t size) { //size는 footer와 header를 모두
     // alloc 빈 size - H/ F 둘 다 들어갈 수 있는 크기여야
 
     if(size_left >= DSIZE){ // dword 정렬이니, 적어도 DSIZE만큼 있거나 꽉 찰 것 예상 // TODO: 검증해야함
-        PUT(FTRP(bp), PACK(size_left, 0 | GET_PREV_BLOCK_FREE(HDRP(bp)))); // 이전 푸터 여부도 0, place할 것이 앞에 있으므로
-        PUT(FTRP(bp) - (size_left - WSIZE) , PACK(size_left, 0 | GET_PREV_BLOCK_FREE(HDRP(bp))));
+        PUT(FTRP(bp), PACK(size_left, 0 )); // 이전 푸터 여부도 0, place할 것이 앞에 있으므로
+        PUT(FTRP(bp) - (size_left - WSIZE) , PACK(size_left, 0));
     }
-
+    else { // free block 없는 
+        int* nptr = (int *)(HDRP(NEXT_BLKP(bp)));
+        (*nptr) &= ~(BIT_PREV_FREE);
+    }
     
-    PUT(HDRP(bp), PACK(size, ALLOCATED_BIT|(GET_PREV_BLOCK_FREE(HDRP(bp))) ));    
+    PUT(HDRP(bp), PACK(size, BIT_ALLOCATED|(GET_PREV_BLOCK_FREE(HDRP(bp))) ));    
     return bp;
 }
 
@@ -249,7 +252,9 @@ void mm_free(void *bp)
     size_t size = GET_SIZE(HDRP(bp));
     size_t footer_availability = GET_PREV_BLOCK_FREE(HDRP(bp));
 
-    PUT(HDRP(NEXT_BLKP(bp)), GET(HDRP(NEXT_BLKP(bp))) | PREV_FREE_BIT) ;
+    // PUT(HDRP(NEXT_BLKP(bp)), GET(HDRP(NEXT_BLKP(bp))) | BIT_PREV_FREE) ;
+    char * nxt_block_header = HDRP(NEXT_BLKP(bp));
+    (*((int*)nxt_block_header)) |= BIT_PREV_FREE;
 
     PUT(HDRP(bp), PACK(size, 0 | footer_availability));
     PUT(FTRP(bp), PACK(size, 0 | footer_availability));
