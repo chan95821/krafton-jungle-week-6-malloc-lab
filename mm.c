@@ -44,6 +44,7 @@ team_t team = {
 #define CHUNKSIZE (1 << 12) // extend heap by this amount (bytesx)
 
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
+#define ABS(x, y) ((x) > (y) ? (x - y) : (y - x) )
 
 // footer 없는 구현용 
 #define BIT_PREV_FREE 0x2
@@ -72,6 +73,9 @@ team_t team = {
 
 // 왜 함수 안쓰고 매크로?
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
+
+
+
 
 
 static void *heap_listp; // prolog 블록의 bp
@@ -161,17 +165,17 @@ int mm_init(void)
     return 0;
 }
 
-static void *place(void *bp, size_t size) { //size는 footer와 header를 모두 포함    // TODO: footer 없는 구현
+static void *place(void *bp, size_t size) { //size는 footer와 header를 모두 포함 
     
     
     // place는 사용할 블록이니, mm_malloc에서만 사용,, - allocated 실수 방어용
-    if(GET_ALLOC(HDRP(bp))) return NULL; //TODO: NULL 예외 처리 로직
+    if(GET_ALLOC(HDRP(bp))) return NULL; //TODO: caller가 NULL 예외 처리해야 함
 
     size_t free_chunk_size = GET_SIZE(HDRP(bp));
     size_t size_left = free_chunk_size - size;
     // alloc 빈 size - H/ F 둘 다 들어갈 수 있는 크기여야
 
-    if(size_left >= DSIZE){ // dword 정렬이니, 적어도 DSIZE만큼 있거나 꽉 찰 것 예상 // TODO: 검증해야함
+    if(size_left >= 2*DSIZE){ // dword 정렬이니, 적어도 DSIZE만큼 있거나 꽉 찰 것 예상 // TODO: 검증해야함
         PUT(FTRP(bp), PACK(size_left, 0 )); // 이전 푸터 여부도 0, place할 것이 앞에 있으므로
         PUT(FTRP(bp) - (size_left - WSIZE) , PACK(size_left, 0));
     }
@@ -185,16 +189,35 @@ static void *place(void *bp, size_t size) { //size는 footer와 header를 모두
 }
 
 static void *find_fit(size_t size){ // 가능한 위치를 찾아서 payload 포인터 반환
-    // first fit
-    void *bp = heap_listp;
-    while((GET_ALLOC(HDRP(bp)) || GET_SIZE(HDRP(bp)) < size) && GET_SIZE(HDRP(bp)) > 0 ){ // allocated이거나 필요 size보다 작으면 다음 탐색, size가 0이면, epilogue이므로 중단
-        bp = NEXT_BLKP(bp);
-    } // 조건 만족하는 가장 첫 번째에서 중단
+    // best fit w/ brute force a
 
-    if(GET_SIZE(HDRP(bp)) == 0) return NULL; // 마지막 도달인 경우
+    void *bp = heap_listp;
+    size_t min_diff = (size_t) -1;
+    void *min_ptr;
+
+    while(GET_SIZE(HDRP(bp)) > 0 ){ // allocated이거나 필요 size보다 작으면 다음 탐색, size가 0이면, epilogue이므로 중단
+        if((GET_ALLOC(HDRP(bp)) || GET_SIZE(HDRP(bp)) < size)) {
+            ;
+        }else {
+            size_t diff = GET_SIZE(HDRP(bp)) - size;
+            if(diff == 0) {
+                min_diff = diff;
+                min_ptr = bp;
+                break;
+            }
+
+            if(diff < min_diff){
+                min_diff = diff;
+                min_ptr = bp;
+            }
+        }
+        bp = NEXT_BLKP(bp);
+    }
+
+    if(min_diff == (size_t) -1) return NULL; // 마지막 도달인 경우
     
      
-    return bp;
+    return min_ptr;
 }
 
 
@@ -214,7 +237,7 @@ void *mm_malloc(size_t size)
     char *bp;
 
     // adjusted size는 header/footer 공간 오버헤드(2word)까지 필요. => 항상 짝수단위만큼 && DSIZE 추가해서 계산 - 오버헤드까지 포함할 수 있음
-    adjusted_size = DSIZE * ((size +         DSIZE + (DSIZE -1 ) ) / DSIZE); // 짝수word (DSIZE) align 하도록 , 짝수 되게 올림 처리
+    // adjusted_size = DSIZE * ((size +         DSIZE + (DSIZE -1 ) ) / DSIZE); // 짝수word (DSIZE) align 하도록 , 짝수 되게 올림 처리
     adjusted_size = DSIZE * ( (size - WSIZE + DSIZE + (DSIZE -1 )) / DSIZE); // header만 있다면, word로도 충분,  // 괄호 잘못 넣어서 
     // 4까지는 8이어도 됨,
     // 12까지는 16이어도 됨, .... 
