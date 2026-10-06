@@ -33,7 +33,7 @@ team_t team = {
     /* First member's full name */
     "Chan Park",
     /* First member's email address */
-    "parkchan37@cs.cmu.edu",
+    "paekchan37@cs.cmu.edu",
     /* Second member's full name (leave blank if none) */
     "",
     /* Second member's email address (leave blank if none) */
@@ -81,6 +81,9 @@ team_t team = {
 static void *heap_listp; // prolog 블록의 bp
 
 static void *coalesce(void *bp){ // 상수 시간이면서, 사이에 free chunk 두개 이상 없는 상태 유지 가능, live 객체 이동 못하므로, 추가 선택지 없음
+
+    if(GET_ALLOC(HDRP(bp))) return bp;
+    
     size_t prev_alloc = (GET_PREV_BLOCK_FREE(HDRP(bp))) ? 0 : 1;
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
     size_t size = GET_SIZE(HDRP(bp));
@@ -92,9 +95,9 @@ static void *coalesce(void *bp){ // 상수 시간이면서, 사이에 free chunk
         size += GET_SIZE(HDRP(PREV_BLKP(bp)));
         // header 넣기
 
-        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0|(GET_PREV_BLOCK_FREE(HDRP(PREV_BLKP(bp))))));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0|0));
         // footer 넣기
-        PUT(FTRP(bp), PACK(size, 0|(GET_PREV_BLOCK_FREE(HDRP(PREV_BLKP(bp))))));
+        PUT(FTRP(bp), PACK(size, 0|0));
 
         bp = PREV_BLKP(bp); 
     }else if (prev_alloc && !next_alloc){ // 다음 chunk가 free 
@@ -102,12 +105,11 @@ static void *coalesce(void *bp){ // 상수 시간이면서, 사이에 free chunk
         //header 넣기
         PUT(HDRP(bp), PACK(size, 0));
         //footer 넣기
-        //PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0)); // TODO: 교재 코드하고 다른데, 이게 맞는것 같다 - 아님. HEADER가 이미 바뀌었기 때문에 합친 크기만큼 이동함/ 모두 맞는
         PUT(FTRP(bp), PACK(size, 0));
     }else { // 양쪽 chunk free
         size = size + GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(HDRP(NEXT_BLKP(bp)));
-        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0|(GET_PREV_BLOCK_FREE(HDRP(PREV_BLKP(bp))))));
-        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0|(GET_PREV_BLOCK_FREE(HDRP(PREV_BLKP(bp))))));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0|0));
+        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0|0));
         bp = PREV_BLKP(bp);
     }
     
@@ -168,23 +170,30 @@ int mm_init(void)
 static void *place(void *bp, size_t size) { //size는 footer와 header를 모두 포함 
     
     
-    // place는 사용할 블록이니, mm_malloc에서만 사용,, - allocated 실수 방어용
-    if(GET_ALLOC(HDRP(bp))) return NULL; //TODO: caller가 NULL 예외 처리해야 함
+    // // place는 사용할 블록이니, mm_malloc에서만 사용,, - allocated 실수 방어용
+    // if(GET_ALLOC(HDRP(bp))) return NULL; //TODO: caller가 NULL 예외 처리해야 함 => realloc 활용하려면 없애야 
 
     size_t free_chunk_size = GET_SIZE(HDRP(bp));
     size_t size_left = free_chunk_size - size;
     // alloc 빈 size - H/ F 둘 다 들어갈 수 있는 크기여야
 
-    if(size_left >= 2*DSIZE){ // dword 정렬이니, 적어도 DSIZE만큼 있거나 꽉 찰 것 예상 // TODO: 검증해야함
-        PUT(FTRP(bp), PACK(size_left, 0 )); // 이전 푸터 여부도 0, place할 것이 앞에 있으므로
-        PUT(FTRP(bp) - (size_left - WSIZE) , PACK(size_left, 0));
+    if(size_left >= 2*DSIZE){ // dword 정렬이니, 적어도 DSIZE만큼 있거나 꽉 찰 것 예상
+        int *nptr = (int *)(HDRP(NEXT_BLKP(bp)));
+        (*nptr) |= BIT_PREV_FREE; // realloc 활용위해
+
+        PUT(FTRP(bp), PACK(size_left, 0 )); // 이전 푸터 여부도 0, place할 것이 앞에 있기 때문
+        PUT(FTRP(bp) - (size_left - WSIZE) , PACK(size_left, 0)); 
+
     }
     else { // free block 없는 
         int* nptr = (int *)(HDRP(NEXT_BLKP(bp)));
         (*nptr) &= ~(BIT_PREV_FREE);
+
+        size = free_chunk_size;
     }
     
-    PUT(HDRP(bp), PACK(size, BIT_ALLOCATED|(GET_PREV_BLOCK_FREE(HDRP(bp))) ));    
+    PUT(HDRP(bp), PACK(size, BIT_ALLOCATED|(GET_PREV_BLOCK_FREE(HDRP(bp))) ));
+    coalesce(NEXT_BLKP(bp));
     return bp;
 }
 
@@ -291,17 +300,34 @@ void mm_free(void *bp)
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-    void *oldptr = ptr;
-    void *newptr;
-    size_t copySize;
 
-    newptr = mm_malloc(size);
-    if (newptr == NULL)
-        return NULL;
-    copySize = GET_SIZE(HDRP(ptr));
-    if (size < copySize)
-        copySize = size;
-    memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
-    return newptr;
+    
+    // 사이즈 줄여야 하면 malloc 필요 없다
+    // 사이즈 늘리더라도 free block + freeblk 합이 size보다 작음 / internal padding 만으로 충분함 / 이면 malloc 필요 없다
+    size_t adjusted_size = DSIZE * ( (size - WSIZE + DSIZE + (DSIZE -1 )) / DSIZE);
+    size_t nxt_blk_size = GET_ALLOC(HDRP(NEXT_BLKP(ptr))) ? 0: GET_SIZE(HDRP(NEXT_BLKP(ptr)));
+    size_t orig_size = GET_SIZE(HDRP(ptr));
+
+// 일단 앞으로 옮기는건 생략 => TODO: 옮길 수 있는 유일한 경우인데, 생략하는건 좀 문제 
+    if(orig_size >= adjusted_size){
+        place(ptr, adjusted_size);
+    } else if( (!GET_ALLOC(HDRP(NEXT_BLKP(ptr)))) && ((orig_size+ nxt_blk_size) >= adjusted_size)){
+        PUT(HDRP(ptr), PACK(orig_size + nxt_blk_size, GET_PREV_BLOCK_FREE(HDRP(ptr))));
+        PUT(FTRP(ptr), PACK(orig_size + nxt_blk_size, GET_PREV_BLOCK_FREE(HDRP(ptr))));
+        place(ptr, adjusted_size);
+    } else {
+        // 두 경우 아님 -> 새 malloc 필요
+        size_t orig_payload_size = orig_size - WSIZE;
+        void *newptr = mm_malloc(size);
+        if (newptr == NULL)
+            return NULL;
+        if(size < orig_payload_size) orig_payload_size = size;
+        memcpy(newptr, ptr, orig_payload_size);
+        mm_free(ptr);
+        ptr = newptr;
+    }
+
+
+
+    return ptr;
 }
