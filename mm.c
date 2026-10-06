@@ -62,6 +62,9 @@ team_t team = {
 
 #define HDRP(bp) (((char *)(bp)) - WSIZE)                      // bp는 payload의 주소, word 만큼 뒤로가기
 #define FTRP(bp) (((char *)(bp)) + GET_SIZE(HDRP(bp)) - DSIZE) // 시작점이 payload이니, word 두번 뒤로가야 // 상수 연산이면 최적화하지 않나? DSIZE = 2 * WSIZE
+#define LEFT_DESC(bp) ((char *)(bp) + WSIZE)
+#define RIGHT_DESC(bp) ((char *)(bp) + 2 * WSIZE)
+
 
 #define NEXT_BLKP(bp) (((char *)(bp)) + GET_SIZE((((char *)(bp)) - WSIZE))) // 다음 chunk payload 주소
 #define PREV_BLKP(bp) (((char *)(bp)) - GET_SIZE((((char *)(bp)) - DSIZE))) // 이전 chunk payload 주소 -> 이전 블록이 free일때만 가능
@@ -142,9 +145,6 @@ static void *extend_heap(size_t words) // payload 주소 반환
 
 
 
-
-
-
 /*
  * mm_init - initialize the malloc package.
  */
@@ -177,7 +177,7 @@ static void *place(void *bp, size_t size) { //size는 footer와 header를 모두
     size_t size_left = free_chunk_size - size;
     // alloc 빈 size - H/ F 둘 다 들어갈 수 있는 크기여야
 
-    if(size_left >= 2*DSIZE){ // dword 정렬이니, 적어도 DSIZE만큼 있거나 꽉 찰 것 예상
+    if(size_left >= (1 << 3)*DSIZE){ // dword 정렬이니, 적어도 DSIZE만큼 있거나 꽉 찰 것 예상
         int *nptr = (int *)(HDRP(NEXT_BLKP(bp)));
         (*nptr) |= BIT_PREV_FREE; // realloc 활용위해
 
@@ -208,6 +208,7 @@ static void *find_fit(size_t size){ // 가능한 위치를 찾아서 payload 포
         if((GET_ALLOC(HDRP(bp)) || GET_SIZE(HDRP(bp)) < size)) {
             ;
         }else {
+            return bp;
             size_t diff = GET_SIZE(HDRP(bp)) - size;
             if(diff == 0) {
                 min_diff = diff;
@@ -306,26 +307,44 @@ void *mm_realloc(void *ptr, size_t size)
     // 사이즈 늘리더라도 free block + freeblk 합이 size보다 작음 / internal padding 만으로 충분함 / 이면 malloc 필요 없다
     size_t adjusted_size = DSIZE * ( (size - WSIZE + DSIZE + (DSIZE -1 )) / DSIZE);
     size_t nxt_blk_size = GET_ALLOC(HDRP(NEXT_BLKP(ptr))) ? 0: GET_SIZE(HDRP(NEXT_BLKP(ptr)));
-    size_t orig_size = GET_SIZE(HDRP(ptr));
+    size_t prev_blk_size = GET_PREV_BLOCK_FREE(HDRP(ptr)) ? GET_SIZE(HDRP(PREV_BLKP(ptr))) : 0;
 
+    size_t orig_size = GET_SIZE(HDRP(ptr));
+    
 // 일단 앞으로 옮기는건 생략 => TODO: 옮길 수 있는 유일한 경우인데, 생략하는건 좀 문제 
-    if(orig_size >= adjusted_size){
-        place(ptr, adjusted_size);
-    } else if( (!GET_ALLOC(HDRP(NEXT_BLKP(ptr)))) && ((orig_size+ nxt_blk_size) >= adjusted_size)){
-        PUT(HDRP(ptr), PACK(orig_size + nxt_blk_size, GET_PREV_BLOCK_FREE(HDRP(ptr))));
-        PUT(FTRP(ptr), PACK(orig_size + nxt_blk_size, GET_PREV_BLOCK_FREE(HDRP(ptr))));
-        place(ptr, adjusted_size);
-    } else {
-        // 두 경우 아님 -> 새 malloc 필요
-        size_t orig_payload_size = orig_size - WSIZE;
-        void *newptr = mm_malloc(size);
-        if (newptr == NULL)
-            return NULL;
-        if(size < orig_payload_size) orig_payload_size = size;
-        memcpy(newptr, ptr, orig_payload_size);
-        mm_free(ptr);
-        ptr = newptr;
-    }
+
+    // if(GET_PREV_BLOCK_FREE(HDRP(ptr)) && (adjusted_size <= nxt_blk_size + prev_blk_size + orig_size)) { // 더 큰 블록 만드는게 목표. 그러니 양 옆 모두 합쳤을 때보다 더 큰 요구 제외 옮기기. 적어도 DSIZE(배수) 만큼은 간격 있음/  만큼 옮기기
+    //     // 이미 알고 있음
+
+    //     u_int32_t* nxt_header = (u_int32_t *) HDRP(NEXT_BLKP(ptr)), *prev_header = (u_int32_t *) HDRP(PREV_BLKP(ptr));
+    //         for(u_int32_t* dest_32_ptr = (u_int32_t *)(PREV_BLKP(ptr)), *src_32_ptr = (u_int32_t*)ptr; src_32_ptr != nxt_header ;dest_32_ptr++, src_32_ptr++){
+    //             *dest_32_ptr = *src_32_ptr;
+    //         }
+    //     PUT(prev_header, PACK(nxt_blk_size + prev_blk_size + orig_size, BIT_ALLOCATED));
+    //     // PUT() => 푸터가 없었으므로, 덮어쓸 위험 있음
+    //     place(prev_header + 1, adjusted_size);
+    //     ptr = (prev_header + 1);
+    // } else {
+        if(orig_size >= adjusted_size){
+            place(ptr, adjusted_size);
+        } else if( (!GET_ALLOC(HDRP(NEXT_BLKP(ptr)))) && ((orig_size+ nxt_blk_size) >= adjusted_size)){
+            PUT(HDRP(ptr), PACK(orig_size + nxt_blk_size, GET_PREV_BLOCK_FREE(HDRP(ptr))));
+            PUT(FTRP(ptr), PACK(orig_size + nxt_blk_size, GET_PREV_BLOCK_FREE(HDRP(ptr))));
+            place(ptr, adjusted_size);
+        } else {
+            // 두 경우 아님 -> 새 malloc 필요
+            size_t orig_payload_size = orig_size - WSIZE;
+            void *newptr = mm_malloc(size);
+            if (newptr == NULL)
+                return NULL;
+            if(size < orig_payload_size) orig_payload_size = size;
+            memcpy(newptr, ptr, orig_payload_size);
+            mm_free(ptr);
+            ptr = newptr;
+        }
+    // }
+
+
 
 
 

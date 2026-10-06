@@ -82,16 +82,6 @@ Tiny synthetic tracefiles for debugging
 * {amptjp,cccp,cp-decl,expr}-bal.rep
 
 Traces generated from real programs.
-
-* {binary,binary2}-bal.rep
-
-The allocation pattern is to alternatively allocate a small-sized
-chunk of memory and a large-sized chunk. The small-sized chunks
-(either 16 or 64 ) are deliberately set to be power of 2 while the
-large-size chunks (either 112 or 448) are not a power of 2. Defeats
-buddy algorithms. However, a simple-minded algorithm might prevail in
-this scenario because a first-fit scheme will be good enough.
-
 * coalescing-bal.rep
 
 Repeatedly allocate two equal-sized chunks (4095 in size) and release
@@ -105,6 +95,16 @@ footer overhead.
 	
 Random allocate and free requesets that simply test the correctness
 and robustness of the algorithm.
+* {binary,binary2}-bal.rep
+
+The allocation pattern is to alternatively allocate a small-sized
+chunk of memory and a large-sized chunk. The small-sized chunks
+(either 16 or 64 ) are deliberately set to be power of 2 while the
+large-size chunks (either 112 or 448) are not a power of 2. Defeats
+buddy algorithms. However, a simple-minded algorithm might prevail in
+this scenario because a first-fit scheme will be good enough.
+
+
 
 
 * {realloc,realloc2}-bal.rep
