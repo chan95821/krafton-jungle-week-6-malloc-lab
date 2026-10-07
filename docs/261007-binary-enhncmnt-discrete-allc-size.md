@@ -101,7 +101,7 @@ Measuring performance with gettimeofday().
 
 힙 확장 가능할 때 제자리 확장하기
 ``` c
-if( ((orig_size+ nxt_blk_size) >= adjusted_size)){
+        if( ((orig_size+ nxt_blk_size) >= adjusted_size)){
             if(nxt_blk_size){
                 PUT(HDRP(ptr), PACK(orig_size + nxt_blk_size, GET_PREV_BLOCK_FREE(HDRP(ptr))));
                 PUT(FTRP(ptr), PACK(orig_size + nxt_blk_size, GET_PREV_BLOCK_FREE(HDRP(ptr))));
@@ -111,8 +111,10 @@ if( ((orig_size+ nxt_blk_size) >= adjusted_size)){
 
                 size_t size_to_extend = MAX(adjusted_size - (orig_size + nxt_blk_size), CHUNKSIZE);
                 extend_heap(size_to_extend/WSIZE);
-                PUT(HDRP(ptr), PACK(orig_size + GET_SIZE(HDRP(NEXT_BLKP(ptr))), GET_PREV_BLOCK_FREE(HDRP(ptr))));
-                PUT(FTRP(ptr), PACK(orig_size + GET_SIZE(HDRP(NEXT_BLKP(ptr))), GET_PREV_BLOCK_FREE(HDRP(ptr))));
+                size_t combined_size =
+                    orig_size + GET_SIZE(HDRP(NEXT_BLKP(ptr)));     
+                PUT(HDRP(ptr), PACK(combined_size, GET_PREV_BLOCK_FREE(HDRP(ptr))));
+                PUT(FTRP(ptr), PACK(combined_size, GET_PREV_BLOCK_FREE(HDRP(ptr))));
                 place(ptr, adjusted_size);
         }
         else ....
@@ -135,4 +137,20 @@ Total          92%  112372  0.129704   866
 
 Perf index = 55 (util) + 40 (thru) = 95/100
 
+chunk size 줄여서 coalesce 개선 - 2^12 to 2^10
+Results for mm malloc:
+trace  valid  util     ops      secs  Kops
+ 0       yes   98%    5694  0.003838  1484
+ 1       yes   99%    5848  0.003372  1734
+ 2       yes   99%    6648  0.004972  1337
+ 3       yes   99%    5380  0.003717  1447
+ 4       yes   89%   14400  0.000087165899
+ 5       yes   92%    4800  0.003060  1569
+ 6       yes   91%    4800  0.003015  1592
+ 7       yes   96%   12000  0.042137   285
+ 8       yes   88%   24000  0.103604   232
+ 9       yes  100%   14401  0.000071203692
+10       yes   85%   14401  0.000066218860
+Total          94%  112372  0.167937   669
 
+Perf index = 56 (util) + 40 (thru) = 96/100

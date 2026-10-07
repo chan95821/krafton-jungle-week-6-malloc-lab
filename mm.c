@@ -41,7 +41,7 @@ team_t team = {
 
 #define WSIZE 4             // header, footer도 word size
 #define DSIZE 8             // dword size in bytes
-#define CHUNKSIZE (1 << 12) // extend heap by this amount (bytesx)
+#define CHUNKSIZE (1 << 10) // extend heap by this amount (bytesx)
 
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
 #define ABS(x, y) ((x) > (y) ? (x - y) : (y - x) )
@@ -351,8 +351,11 @@ void *mm_realloc(void *ptr, size_t size)
 
                 size_t size_to_extend = MAX(adjusted_size - (orig_size + nxt_blk_size), CHUNKSIZE);
                 extend_heap(size_to_extend/WSIZE);
-                PUT(HDRP(ptr), PACK(orig_size + GET_SIZE(HDRP(NEXT_BLKP(ptr))), GET_PREV_BLOCK_FREE(HDRP(ptr))));
-                PUT(FTRP(ptr), PACK(orig_size + GET_SIZE(HDRP(NEXT_BLKP(ptr))), GET_PREV_BLOCK_FREE(HDRP(ptr))));
+                size_t combined_size =
+                    orig_size + GET_SIZE(HDRP(NEXT_BLKP(ptr)));     
+                PUT(HDRP(ptr), PACK(combined_size, GET_PREV_BLOCK_FREE(HDRP(ptr))));
+                //PUT(FTRP(ptr), PACK(combined_size, GET_PREV_BLOCK_FREE(HDRP(ptr)))); 
+
                 place(ptr, adjusted_size);
         }
         else {
