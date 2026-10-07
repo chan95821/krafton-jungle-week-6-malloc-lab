@@ -73,12 +73,24 @@ team_t team = {
 
 /* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGN(size) (((size) + (ALIGNMENT - 1)) & ~0x7) // LSB에서 3번째까지 0이니, 잘라내는
-
+// #define ADJUST(size) (DSIZE * ( ((size) - WSIZE + DSIZE + (DSIZE -1 )) / DSIZE))
+static inline size_t ADJUST(size_t size) {
+    if(size < 128) {
+        if (size > 64) return 128;
+        if (size > 32) return 64;
+        if (size > 16) return 32;
+        if (size > 8) return 16;
+        else return 8; // 어차피 8 바이트 이상이어야, 의미없는 
+    }else if(size < 256){
+        return (32 * ((size) / 32 + (size % 32 ? 1 : 0)));
+    }
+    return (128 *((size) / 128 + ((size) % 128 ? 1 : 0)));
+}
 // 왜 함수 안쓰고 매크로?
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
 
-
+static void *next_fit_ptr;
 
 
 static void *heap_listp; // prolog 블록의 bp
@@ -248,9 +260,10 @@ void *mm_malloc(size_t size)
 
     // adjusted size는 header/footer 공간 오버헤드(2word)까지 필요. => 항상 짝수단위만큼 && DSIZE 추가해서 계산 - 오버헤드까지 포함할 수 있음
     // adjusted_size = DSIZE * ((size +         DSIZE + (DSIZE -1 ) ) / DSIZE); // 짝수word (DSIZE) align 하도록 , 짝수 되게 올림 처리
-    adjusted_size = DSIZE * ( (size - WSIZE + DSIZE + (DSIZE -1 )) / DSIZE); // header만 있다면, word로도 충분,  // 괄호 잘못 넣어서 
+    adjusted_size = ALIGN(ADJUST(size) + WSIZE); // header만 있다면, word로도 충분,  // 괄호 잘못 넣어서 
     // 4까지는 8이어도 됨,
     // 12까지는 16이어도 됨, .... 
+
 
     if((bp = find_fit(adjusted_size)) != NULL){
         place(bp, adjusted_size);
@@ -302,10 +315,13 @@ void mm_free(void *bp)
 void *mm_realloc(void *ptr, size_t size)
 {
 
-    
+    if(size == 0) {
+        mm_free(ptr);
+        return NULL;
+    }
     // 사이즈 줄여야 하면 malloc 필요 없다
     // 사이즈 늘리더라도 free block + freeblk 합이 size보다 작음 / internal padding 만으로 충분함 / 이면 malloc 필요 없다
-    size_t adjusted_size = DSIZE * ( (size - WSIZE + DSIZE + (DSIZE -1 )) / DSIZE);
+    size_t adjusted_size = ALIGN(ADJUST(size) + WSIZE);;
     size_t nxt_blk_size = GET_ALLOC(HDRP(NEXT_BLKP(ptr))) ? 0: GET_SIZE(HDRP(NEXT_BLKP(ptr)));
     size_t prev_blk_size = GET_PREV_BLOCK_FREE(HDRP(ptr)) ? GET_SIZE(HDRP(PREV_BLKP(ptr))) : 0;
 
@@ -313,8 +329,8 @@ void *mm_realloc(void *ptr, size_t size)
     
 // 일단 앞으로 옮기는건 생략 => TODO: 옮길 수 있는 유일한 경우인데, 생략하는건 좀 문제 
 
-    // if(GET_PREV_BLOCK_FREE(HDRP(ptr)) && (adjusted_size <= nxt_blk_size + prev_blk_size + orig_size)) { // 더 큰 블록 만드는게 목표. 그러니 양 옆 모두 합쳤을 때보다 더 큰 요구 제외 옮기기. 적어도 DSIZE(배수) 만큼은 간격 있음/  만큼 옮기기
-    //     // 이미 알고 있음
+    // if(GET_PREV_BLOCK_FREE(HDRP(ptr)) && !(adjusted_size <= nxt_blk_size + orig_size) && (adjusted_size <= nxt_blk_size + prev_blk_size + orig_size)) { // 뒤로 확장 못할때까지 지연시켜보기 
+
 
     //     u_int32_t* nxt_header = (u_int32_t *) HDRP(NEXT_BLKP(ptr)), *prev_header = (u_int32_t *) HDRP(PREV_BLKP(ptr));
     //         for(u_int32_t* dest_32_ptr = (u_int32_t *)(PREV_BLKP(ptr)), *src_32_ptr = (u_int32_t*)ptr; src_32_ptr != nxt_header ;dest_32_ptr++, src_32_ptr++){
@@ -325,14 +341,24 @@ void *mm_realloc(void *ptr, size_t size)
     //     place(prev_header + 1, adjusted_size);
     //     ptr = (prev_header + 1);
     // } else {
-        if(orig_size >= adjusted_size){
+        if( ((orig_size+ nxt_blk_size) >= adjusted_size)){
+            if(nxt_blk_size){
+                PUT(HDRP(ptr), PACK(orig_size + nxt_blk_size, GET_PREV_BLOCK_FREE(HDRP(ptr))));
+                PUT(FTRP(ptr), PACK(orig_size + nxt_blk_size, GET_PREV_BLOCK_FREE(HDRP(ptr))));
+            }
             place(ptr, adjusted_size);
-        } else if( (!GET_ALLOC(HDRP(NEXT_BLKP(ptr)))) && ((orig_size+ nxt_blk_size) >= adjusted_size)){
-            PUT(HDRP(ptr), PACK(orig_size + nxt_blk_size, GET_PREV_BLOCK_FREE(HDRP(ptr))));
-            PUT(FTRP(ptr), PACK(orig_size + nxt_blk_size, GET_PREV_BLOCK_FREE(HDRP(ptr))));
-            place(ptr, adjusted_size);
-        } else {
+        } else if ((GET_SIZE(HDRP(NEXT_BLKP(ptr))) == 0) || (nxt_blk_size && GET_SIZE(HDRP(NEXT_BLKP(NEXT_BLKP(ptr)))) == 0 )){ // heap 확장 가능할 때 제자리 확장하기
+
+                size_t size_to_extend = MAX(adjusted_size - (orig_size + nxt_blk_size), CHUNKSIZE);
+                extend_heap(size_to_extend/WSIZE);
+                PUT(HDRP(ptr), PACK(orig_size + GET_SIZE(HDRP(NEXT_BLKP(ptr))), GET_PREV_BLOCK_FREE(HDRP(ptr))));
+                PUT(FTRP(ptr), PACK(orig_size + GET_SIZE(HDRP(NEXT_BLKP(ptr))), GET_PREV_BLOCK_FREE(HDRP(ptr))));
+                place(ptr, adjusted_size);
+        }
+        else {
             // 두 경우 아님 -> 새 malloc 필요
+            // 다음 블록을 만들려 할 때 realloc이 free된 상황이어야 malloc 이 효율적이게 됨. naive malloc으로는 확장할 블록 공간 고려 안함.
+            // 플래그만 ~allocated로 바꾸면, 뒷쪽 free 여부는 신경쓰지 않고 extend 후 coalesce 가능,, 이러면 free block 두개 생기지만, place가 보장되면 합쳐진 곳에 바로 할당함
             size_t orig_payload_size = orig_size - WSIZE;
             void *newptr = mm_malloc(size);
             if (newptr == NULL)

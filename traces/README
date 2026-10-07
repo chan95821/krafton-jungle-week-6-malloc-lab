@@ -95,6 +95,7 @@ footer overhead.
 	
 Random allocate and free requesets that simply test the correctness
 and robustness of the algorithm.
+
 * {binary,binary2}-bal.rep
 
 The allocation pattern is to alternatively allocate a small-sized
