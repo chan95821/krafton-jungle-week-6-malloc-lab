@@ -329,18 +329,18 @@ void *mm_realloc(void *ptr, size_t size)
     
 // 일단 앞으로 옮기는건 생략 => TODO: 옮길 수 있는 유일한 경우인데, 생략하는건 좀 문제 
 
-    // if(GET_PREV_BLOCK_FREE(HDRP(ptr)) && !(adjusted_size <= nxt_blk_size + orig_size) && (adjusted_size <= nxt_blk_size + prev_blk_size + orig_size)) { // 뒤로 확장 못할때까지 지연시켜보기 
+    if(GET_PREV_BLOCK_FREE(HDRP(ptr)) && !(adjusted_size <= nxt_blk_size + orig_size) && (adjusted_size <= nxt_blk_size + prev_blk_size + orig_size)) { // 뒤로 확장 못할때까지 지연시켜보기 
 
 
-    //     u_int32_t* nxt_header = (u_int32_t *) HDRP(NEXT_BLKP(ptr)), *prev_header = (u_int32_t *) HDRP(PREV_BLKP(ptr));
-    //         for(u_int32_t* dest_32_ptr = (u_int32_t *)(PREV_BLKP(ptr)), *src_32_ptr = (u_int32_t*)ptr; src_32_ptr != nxt_header ;dest_32_ptr++, src_32_ptr++){
-    //             *dest_32_ptr = *src_32_ptr;
-    //         }
-    //     PUT(prev_header, PACK(nxt_blk_size + prev_blk_size + orig_size, BIT_ALLOCATED));
-    //     // PUT() => 푸터가 없었으므로, 덮어쓸 위험 있음
-    //     place(prev_header + 1, adjusted_size);
-    //     ptr = (prev_header + 1);
-    // } else {
+        u_int32_t* nxt_header = (u_int32_t *) HDRP(NEXT_BLKP(ptr)), *prev_header = (u_int32_t *) HDRP(PREV_BLKP(ptr));
+            for(u_int32_t* dest_32_ptr = (u_int32_t *)(PREV_BLKP(ptr)), *src_32_ptr = (u_int32_t*)ptr; src_32_ptr != nxt_header ;dest_32_ptr++, src_32_ptr++){
+                *dest_32_ptr = *src_32_ptr;
+            }
+        PUT(prev_header, PACK(nxt_blk_size + prev_blk_size + orig_size, BIT_ALLOCATED));
+        // PUT() => 푸터가 없었으므로, 덮어쓸 위험 있음
+        place(prev_header + 1, adjusted_size);
+        ptr = (prev_header + 1);
+    } else {
         if( ((orig_size+ nxt_blk_size) >= adjusted_size)){
             if(nxt_blk_size){
                 PUT(HDRP(ptr), PACK(orig_size + nxt_blk_size, GET_PREV_BLOCK_FREE(HDRP(ptr))));
@@ -371,7 +371,7 @@ void *mm_realloc(void *ptr, size_t size)
             mm_free(ptr);
             ptr = newptr;
         }
-    // }
+    }
 
 
 

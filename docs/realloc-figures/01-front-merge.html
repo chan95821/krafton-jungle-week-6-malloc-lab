@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>앞쪽 빈 공간까지 합쳐 이동</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #fff; color: #222; font-family: "Noto Sans CJK KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+      main { width: min(100%, 1440px); margin: 0 auto; }
+      svg { display: block; width: 100%; height: auto; }
+      svg text { fill: #222; font-family: inherit; }
+      .title { font-size: 36px; font-weight: 700; }
+      .subtitle { font-size: 23px; }
+      .label { font-size: 24px; }
+      .block-label { font-size: 23px; text-anchor: middle; }
+      .small { font-size: 19px; }
+      .muted { fill: #616161; }
+      .free { fill: #c7e9f1; }
+      .allocated { fill: #f3d3c4; }
+      .grown { fill: #ddd1f5; }
+      .tiny { fill: #f6dda0; }
+      .boundary { stroke: #fff; stroke-width: 2; }
+      .guide { stroke: #777; stroke-width: 1.5; stroke-dasharray: 6 6; }
+      @media print { main { width: 100%; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <!-- 근거: traces/realloc-bal.rep 9~10번째 줄. 81df569의 주석 처리된 이동 분기, 488c392의 뒤쪽 확장 로직. -->
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 780" role="img" aria-labelledby="title description">
+        <title id="title">앞쪽 빈 공간까지 합쳐 이동하면 뒤에 더 큰 빈 공간이 남는다</title>
+        <desc id="description">작은 ID 2 블록, 앞쪽 빈 공간, ID 0 블록, 뒤쪽 빈 공간이 순서대로 있다. 양옆과 현재 블록을 합쳐 ID 0을 앞으로 옮기면 뒤에 더 큰 빈 공간이 남는다. 작은 ID 2 블록은 그대로 유지된다.</desc>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#555" />
+          </marker>
+        </defs>
+
+        <text x="64" y="70" class="title">앞쪽 빈 공간까지 합쳐 이동</text>
+        <text x="64" y="114" class="subtitle">realloc-bal.rep</text>
+
+        <rect x="64" y="184" width="22" height="22" class="free" />
+        <text x="97" y="202" class="small">빈 공간</text>
+        <rect x="220" y="184" width="22" height="22" class="allocated" />
+        <text x="253" y="202" class="small">기존 ID 0</text>
+        <rect x="406" y="184" width="22" height="22" class="grown" />
+        <text x="439" y="202" class="small">커진 ID 0</text>
+        <rect x="592" y="184" width="22" height="22" class="tiny" />
+        <text x="625" y="202" class="small">작은 블록</text>
+        <path d="M 1200 199 H 1368" stroke="#777" marker-end="url(#arrow)" />
+        <text x="1200" y="185" class="small muted">주소 증가</text>
+
+        <text x="64" y="270" class="label">이동 전</text>
+        <g class="boundary">
+          <rect x="64" y="296" width="176" height="104" class="tiny" />
+          <rect x="240" y="296" width="420" height="104" class="free" />
+          <rect x="660" y="296" width="354" height="104" class="allocated" />
+          <rect x="1014" y="296" width="362" height="104" class="free" />
+        </g>
+        <text x="152" y="356" class="block-label">작은 ID 2</text>
+        <text x="450" y="356" class="block-label">앞쪽 빈 공간</text>
+        <text x="837" y="356" class="block-label">ID 0</text>
+        <text x="1195" y="356" class="block-label">뒤쪽 빈 공간</text>
+        <line x1="1376" y1="296" x2="1376" y2="410" stroke="#333" stroke-width="2" />
+        <text x="1376" y="439" text-anchor="end" class="small">힙 끝</text>
+
+        <path d="M 240 418 V 435 H 1014 V 418" fill="none" stroke="#777" stroke-width="1.5" />
+        <path d="M 660 499 H 243" fill="none" stroke="#555" stroke-width="2" marker-end="url(#arrow)" />
+        <text x="451" y="532" text-anchor="middle" class="small">이동·복사</text>
+
+        <text x="64" y="584" class="label">이동 후</text>
+        <g class="boundary">
+          <rect x="64" y="610" width="176" height="104" class="tiny" />
+          <rect x="240" y="610" width="520" height="104" class="grown" />
+          <rect x="760" y="610" width="616" height="104" class="free" />
+        </g>
+        <text x="152" y="670" class="block-label">작은 ID 2</text>
+        <text x="500" y="670" class="block-label">ID 0</text>
+        <text x="1068" y="670" class="block-label">뒤쪽 빈 공간</text>
+        <line x1="660" y1="597" x2="660" y2="725" class="guide" />
+        <text x="660" y="750" text-anchor="middle" class="small muted">기존 시작 위치</text>
+        <line x1="1376" y1="610" x2="1376" y2="725" stroke="#333" stroke-width="2" />
+        <text x="1376" y="750" text-anchor="end" class="small">힙 끝</text>
+      </svg>
+    </main>
+  </body>
+</html>

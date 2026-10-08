@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>같은 요청, 더 크게 늘어난 힙</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #fff; color: #222; font-family: "Noto Sans CJK KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+      main { width: min(100%, 1440px); margin: 0 auto; }
+      svg { display: block; width: 100%; height: auto; }
+      svg text { fill: #222; font-family: inherit; }
+      .title { font-size: 36px; font-weight: 700; }
+      .subtitle { font-size: 23px; }
+      .heading { font-size: 28px; font-weight: 700; }
+      .label { font-size: 22px; }
+      .block-label { font-size: 21px; text-anchor: middle; }
+      .small { font-size: 18px; }
+      .muted { fill: #616161; }
+      .free { fill: #c7e9f1; }
+      .allocated { fill: #f3d3c4; }
+      .grown { fill: #ddd1f5; }
+      .tiny { fill: #f6dda0; }
+      .boundary { stroke: #fff; stroke-width: 2; }
+      .guide { stroke: #777; stroke-width: 1.5; stroke-dasharray: 6 6; }
+      .result { font-size: 32px; font-weight: 700; }
+      .blocked { fill: #9d352d; }
+      @media print { main { width: 100%; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <!--
+        근거: 81df569fd15ff75e2c33966aaefdac4530ef6c0a의 mm.c.
+        동일한 81df569에서 주석 처리된 앞쪽 이동 분기만 활성화/비활성화하여 realloc-bal.rep 전체를 재현.
+        배치 예시: traces/realloc-bal.rep 63~64번째 줄, f 19 직후 → r 0 3072.
+        이동 활성화: [ID0 2952][ID20 136][free 1008] → 새 할당 중 [ID0 2952][ID20 136][새 ID0 3080][free 2024].
+        이동 비활성화: [ID20 136][free 520][ID0 2952][free 488] → [ID20 136][free 520][ID0 3080][free 360].
+        최대 동시 요청량은 모두 615040. 최종 힙은 이동 시 1409520, 이동 없이 772312.
+        활용률은 mdriver.c의 eval_mm_util과 동일하게 최대 동시 요청량 / 최종 힙 크기로 계산.
+        배치 그림의 폭은 개념 표현. 결과 막대는 두 방식의 힙 크기에 같은 축척을 적용.
+        488c392 원본은 탐색 및 분할 기준도 달라, 이동 여부만의 비교 기준으로 사용하지 않음.
+      -->
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 950" role="img" aria-labelledby="title description">
+        <title id="title">같은 요청, 더 크게 늘어난 힙</title>
+        <desc id="description">같은 81df569 로직에서 앞쪽 이동 여부만 비교한다. 왼쪽은 뒤쪽 확장만 하는 방식으로, 작은 블록이 앞에 있어 뒤쪽 빈 공간으로 제자리 확장하고 활용률은 80퍼센트다. 오른쪽은 앞쪽 이동 방식이다. 작은 ID 20이 뒤를 막은 상태에서 r 0 3072 요청이 오면, 기존 ID 0을 해제하기 전에 새 ID 0 전체를 확보하며 힙을 늘린다. 복사 후 기존 자리를 해제해도 힙 크기는 줄지 않는다. 전체 요청의 최대 동시 요청량은 같지만, 앞쪽 이동 방식의 최종 힙은 1.83배로 커지고 활용률은 44퍼센트다. 위쪽 배치는 개념도이고 아래 결과 막대는 동일 축척이다.</desc>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#555" />
+          </marker>
+        </defs>
+
+        <text x="64" y="70" class="title">같은 요청, 더 크게 늘어난 힙</text>
+        <text x="64" y="112" class="subtitle">realloc-bal.rep · 81df569 · 앞쪽 이동 유무 비교</text>
+
+        <rect x="64" y="177" width="22" height="22" class="free" />
+        <text x="97" y="195" class="small">빈 공간</text>
+        <rect x="220" y="177" width="22" height="22" class="allocated" />
+        <text x="253" y="195" class="small">ID 0</text>
+        <rect x="343" y="177" width="22" height="22" class="grown" />
+        <text x="376" y="195" class="small">재할당된 ID 0</text>
+        <rect x="592" y="177" width="22" height="22" class="tiny" />
+        <text x="625" y="195" class="small">작은 블록</text>
+
+        <line x1="720" y1="225" x2="720" y2="885" stroke="#ddd" />
+        <text x="64" y="702" class="label">전체 요청 결과 · 최대 동시 요청량은 같음</text>
+
+        <g id="back-expansion">
+          <text x="64" y="250" class="heading">뒤쪽 확장</text>
+          <text x="64" y="331" class="label">① 작은 블록 할당 후</text>
+          <g class="boundary">
+            <rect x="64" y="353" width="72" height="82" class="tiny" />
+            <rect x="136" y="353" width="108" height="82" class="free" />
+            <rect x="244" y="353" width="170" height="82" class="allocated" />
+            <rect x="414" y="353" width="60" height="82" class="free" />
+          </g>
+          <text x="100" y="386" class="small" text-anchor="middle">작은<tspan x="100" dy="28">블록</tspan></text>
+          <text x="190" y="400" class="block-label">빈 공간</text>
+          <text x="329" y="400" class="block-label">ID 0</text>
+          <line x1="474" y1="353" x2="474" y2="441" stroke="#333" stroke-width="2" />
+          <text x="64" y="467" class="small">뒤쪽 확장 가능</text>
+
+          <text x="64" y="499" class="label">② 다음 재할당 · r 0 3072</text>
+          <g class="boundary">
+            <rect x="64" y="521" width="72" height="82" class="tiny" />
+            <rect x="136" y="521" width="108" height="82" class="free" />
+            <rect x="244" y="521" width="198" height="82" class="grown" />
+            <rect x="442" y="521" width="32" height="82" class="free" />
+          </g>
+          <text x="100" y="554" class="small" text-anchor="middle">작은<tspan x="100" dy="28">블록</tspan></text>
+          <text x="190" y="568" class="block-label">빈 공간</text>
+          <text x="343" y="554" class="block-label">ID 0<tspan x="343" dy="28">제자리 확장</tspan></text>
+          <line x1="474" y1="521" x2="474" y2="612" stroke="#333" stroke-width="2" />
+          <text x="64" y="638" class="small">힙 크기 유지</text>
+
+          <text x="64" y="747" class="result">활용률 80%</text>
+          <g class="boundary">
+            <rect x="64" y="766" width="261.808" height="72" class="allocated" />
+            <rect x="325.808" y="766" width="66.947" height="72" class="free" />
+          </g>
+          <text x="195" y="810" class="block-label">최대 요청량</text>
+          <text x="359" y="809" class="small" text-anchor="middle">나머지</text>
+          <line x1="392.755" y1="766" x2="392.755" y2="843" stroke="#333" stroke-width="2" />
+          <text x="64" y="876" class="label">확보한 힙 1배</text>
+        </g>
+
+        <g id="front-movement" transform="translate(712 0)">
+          <text x="64" y="250" class="heading">앞쪽 이동</text>
+          <text x="64" y="331" class="label">① 작은 블록 할당 후</text>
+          <g class="boundary">
+            <rect x="64" y="353" width="220" height="82" class="allocated" />
+            <rect x="284" y="353" width="72" height="82" class="tiny" />
+            <rect x="356" y="353" width="118" height="82" class="free" />
+          </g>
+          <text x="174" y="400" class="block-label">ID 0</text>
+          <text x="320" y="386" class="small" text-anchor="middle">작은<tspan x="320" dy="28">블록</tspan></text>
+          <text x="415" y="400" class="block-label">빈 공간</text>
+          <path d="M 284 347 V 441" stroke="#9d352d" stroke-width="3" />
+          <line x1="474" y1="353" x2="474" y2="441" stroke="#333" stroke-width="2" />
+          <text x="64" y="467" class="small blocked">뒤쪽 확장 불가</text>
+
+          <text x="64" y="499" class="label">② 다음 재할당 · r 0 3072</text>
+          <g class="boundary">
+            <rect x="64" y="521" width="220" height="82" class="allocated" />
+            <rect x="284" y="521" width="72" height="82" class="tiny" />
+            <rect x="356" y="521" width="226" height="82" class="grown" />
+            <rect x="582" y="521" width="82" height="82" class="free" />
+          </g>
+          <text x="174" y="568" class="block-label">기존 ID 0</text>
+          <text x="320" y="554" class="small" text-anchor="middle">작은<tspan x="320" dy="28">블록</tspan></text>
+          <text x="469" y="554" class="block-label">새 ID 0<tspan x="469" dy="28">새 할당·복사</tspan></text>
+          <text x="623" y="568" class="small" text-anchor="middle">빈 공간</text>
+          <line x1="474" y1="507" x2="474" y2="519" class="guide" />
+          <line x1="474" y1="594" x2="474" y2="614" class="guide" />
+          <line x1="664" y1="521" x2="664" y2="612" stroke="#333" stroke-width="2" />
+          <path d="M 474 614 V 623 H 664 V 614" fill="none" stroke="#555" stroke-width="1.5" />
+          <text x="569" y="652" class="small blocked" text-anchor="middle">힙 확장</text>
+          <text x="64" y="638" class="small">복사 후 기존 자리 해제</text>
+
+          <text x="64" y="747" class="result blocked">활용률 44%</text>
+          <g class="boundary">
+            <rect x="64" y="766" width="261.808" height="72" class="allocated" />
+            <rect x="325.808" y="766" width="338.192" height="72" class="free" />
+          </g>
+          <text x="195" y="810" class="block-label">최대 요청량</text>
+          <text x="495" y="810" class="block-label">나머지 힙</text>
+          <line x1="664" y1="766" x2="664" y2="843" stroke="#333" stroke-width="2" />
+          <text x="64" y="876" class="label">확보한 힙 1.83배</text>
+        </g>
+        <text x="64" y="927" class="small muted">활용률 = 최대 동시 요청량 ÷ 최종 힙 크기</text>
+      </svg>
+    </main>
+  </body>
+</html>
